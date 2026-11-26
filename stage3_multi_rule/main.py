@@ -21,8 +21,8 @@ class CarverMultiRuleSystem(QCAlgorithm):
     Regression check: rules=mac16 reproduces Stage 2 (same trades, same fills).
 
     Parameters (all optional, same names as Stage 2 where shared):
-      symbols, target_risk, idm, stop_fraction, allow_short, max_leverage,
-      start_year, end_year, cash            as Stage 2
+      symbols, target_risk, idm, stop_fraction, allow_short, wait_for_flip,
+      max_leverage, start_year, end_year, cash   as Stage 2
       rules           comma list, default all nine rules (see rules.py for syntax)
       ma_type         "sma" (default, as Stage 2) or "ewma" for the crossovers
       w_mac, w_breakout, w_carry   family weights, default 0.3 / 0.3 / 0.4
@@ -46,6 +46,7 @@ class CarverMultiRuleSystem(QCAlgorithm):
         self.weight = 1.0 / len(tickers)
         stop_fraction = float(self._param("stop_fraction", 0.5))
         allow_short = str(self._param("allow_short", "true")).lower() == "true"
+        wait_for_flip = str(self._param("wait_for_flip", "true")).lower() == "true"
 
         rules_spec = self._param("rules", DEFAULT_RULES)
         ma_type = self._param("ma_type", "sma")
@@ -65,7 +66,8 @@ class CarverMultiRuleSystem(QCAlgorithm):
             sec.set_leverage(4)  # broker margin headroom; real exposure is capped by max_leverage
             self.systems[sec.symbol] = MultiRuleSystem(
                 rules_spec=rules_spec, family_weights=family_weights, ma_type=ma_type,
-                funding_spread=funding_spread, stop_fraction=stop_fraction, allow_short=allow_short)
+                funding_spread=funding_spread, stop_fraction=stop_fraction, allow_short=allow_short,
+                wait_for_flip=wait_for_flip)
 
         first = next(iter(self.systems.values()))
         self.debug("Rule weights: " + ", ".join(f"{k} {v:.3f}" for k, v in first.weights.items()))

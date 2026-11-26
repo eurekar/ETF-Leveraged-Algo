@@ -166,6 +166,34 @@ def test_full_system_runs_and_obeys_reentry_rule():
     print(f"  synthetic path: Stage 2 {len(stage2)} trades, Stage 3 {len(trades)} trades")
 
 
+def test_wait_for_flip_skips_first_signal():
+    for cls, kw in [(StarterSystem, {}), (MultiRuleSystem, {"rules_spec": "mac16"})]:
+        s = cls(wait_for_flip=True, **kw)
+        sig0, first_open = None, None
+        for i, c in enumerate(PX):
+            if isinstance(s, MultiRuleSystem):
+                s.add_close(c, DATES[i], 0.02)
+            else:
+                s.add_close(c)
+            if not s.ready:
+                continue
+            if sig0 is None:
+                sig0 = s.signal()
+            d = s.wants_to_open()
+            if d:
+                first_open = d
+                break
+        assert first_open == -sig0, cls      # first trade only after the signal flips
+
+
+def test_wait_for_flip_parity_with_stage2():
+    for seed in range(5):
+        px = synthetic_prices(seed)
+        a = run(StarterSystem(wait_for_flip=True), px)
+        b = run(MultiRuleSystem(rules_spec="mac16", wait_for_flip=True), px)
+        assert a == b and len(a) > 5, seed
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

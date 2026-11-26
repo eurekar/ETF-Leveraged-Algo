@@ -24,6 +24,8 @@ Closing rule : trailing stop. Stop gap (in price units) is fixed at entry:
 Re-entry     : after a stop-out, do not re-open in the same direction as the
                trade just closed; wait until the signal points the other way
                (same as the overtrading rule in signal_detector.py).
+Start        : with wait_for_flip=True the start of trading is treated like a
+               stop-out: the first trade waits for the first signal flip.
 """
 
 FAST = 16
@@ -74,12 +76,18 @@ class StarterSystem:
     """State for one instrument. Feed it one daily close at a time."""
 
     def __init__(self, signal_type="sma", fast=FAST, slow=SLOW,
-                 risk_window=RISK_WINDOW, stop_fraction=0.5, allow_short=True):
+                 risk_window=RISK_WINDOW, stop_fraction=0.5, allow_short=True,
+                 wait_for_flip=False):
         self.signal_type = signal_type.lower()
         self.fast, self.slow = fast, slow
         self.risk_window = risk_window
         self.stop_fraction = stop_fraction
         self.allow_short = allow_short
+        # wait_for_flip: treat the start like a stop-out. The first time we are asked
+        # to open, block the current signal direction and wait for it to flip, so the
+        # first trade opens on a fresh crossover rather than mid-trend.
+        self.wait_for_flip = wait_for_flip
+        self._started = False
         self.closes = deque(maxlen=max(slow, risk_window + 1))
         self.ewma_fast, self.ewma_slow = Ewma(fast), Ewma(slow)
         self.n = 0
@@ -129,6 +137,11 @@ class StarterSystem:
         sig = self.signal()
         if sig == 0:
             return 0
+        if not self._started:
+            self._started = True
+            if self.wait_for_flip:
+                self.last_closed_dir = sig   # as if a trade in this direction just stopped out
+                return 0
         if sig == self.last_closed_dir:
             return 0   # overtrading rule: wait for the signal to flip first
         self.last_closed_dir = 0   # signal has flipped, block lifted

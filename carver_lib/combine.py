@@ -48,9 +48,11 @@ class MultiRuleSystem(StarterSystem):
     """Starter System whose opening signal is the combined vote of several rules."""
 
     def __init__(self, rules_spec=DEFAULT_RULES, family_weights=None, ma_type="sma",
-                 funding_spread=0.0, risk_window=25, stop_fraction=0.5, allow_short=True):
+                 funding_spread=0.0, risk_window=25, stop_fraction=0.5, allow_short=True,
+                 wait_for_flip=False):
         super().__init__(signal_type=ma_type, risk_window=risk_window,
-                         stop_fraction=stop_fraction, allow_short=allow_short)
+                         stop_fraction=stop_fraction, allow_short=allow_short,
+                         wait_for_flip=wait_for_flip)
         self.rules = build_rules(rules_spec, ma_type, funding_spread)
         self.weights = rule_weights(self.rules, family_weights)
         self.price_rules = [r for fam, r in self.rules.values() if fam != "carry"]

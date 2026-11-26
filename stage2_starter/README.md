@@ -50,6 +50,7 @@ lean cloud push --project CarverStarter && lean cloud backtest CarverStarter --o
 | `signal_type` | sma | `sma` or `ewma` |
 | `stop_fraction` | 0.5 | Stop gap as a fraction of annual instrument risk |
 | `allow_short` | true | `false` for long-only |
+| `wait_for_flip` | true | Treat the start like a stop-out: the first trade waits for the first crossover after warm-up. `false` opens on the current signal right after warm-up. |
 | `max_leverage` | 2.0 | Cap on gross notional / equity |
 | `start_year`, `end_year`, `cash` | 2008, 2025, 100000 | Backtest window and capital |
 
@@ -59,7 +60,7 @@ lean cloud push --project CarverStarter && lean cloud backtest CarverStarter --o
 - 25-day risk window instead of 252.
 - No 1× notional cap per position (that cap bound most of the time for low-vol ETFs); a portfolio leverage cap instead.
 - Stops checked on the close with next-open exits, instead of intraday stop-market orders.
-- The first trade opens right after warm-up instead of waiting for the next crossover.
+- By default the first trade waits for the first crossover after warm-up, as Stage 1 did, and as the re-entry rule does after a stop-out. Set `wait_for_flip=false` to open on the current signal right after warm-up.
 
 ## Known simplifications
 

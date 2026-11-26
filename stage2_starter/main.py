@@ -13,7 +13,8 @@ class CarverStarterSystem(QCAlgorithm):
       - instrument risk from 25 daily returns (about one month), not 252
       - no 1x notional cap per position; a portfolio max_leverage cap instead
       - stop checked against the daily close (exit next open), no intraday stop orders
-      - first trade opens right after warm-up instead of waiting for a crossover
+      - wait_for_flip (default true): the first trade waits for the first crossover after
+        warm-up, like a re-entry after a stop-out; false opens on the current signal
 
     Daily cycle (runs on each daily close):
       1. Update each ETF's moving averages and 25-day instrument risk.
@@ -32,6 +33,8 @@ class CarverStarterSystem(QCAlgorithm):
       signal_type   "sma" (book) or "ewma", default "sma"
       stop_fraction stop gap as a fraction of annual risk, default 0.5
       allow_short   "true"/"false", default "true"
+      wait_for_flip "true" (default): first trade waits for the first signal flip after
+                    warm-up, like after a stop-out; "false" opens on the current signal
       max_leverage  cap on gross notional / equity, default 2.0
       start_year    default 2008, end_year default 2025, cash default 100000
     """
@@ -51,13 +54,15 @@ class CarverStarterSystem(QCAlgorithm):
         signal_type = self._param("signal_type", "sma")
         stop_fraction = float(self._param("stop_fraction", 0.5))
         allow_short = str(self._param("allow_short", "true")).lower() == "true"
+        wait_for_flip = str(self._param("wait_for_flip", "true")).lower() == "true"
 
         self.systems = {}
         for t in tickers:
             sec = self.add_equity(t, Resolution.DAILY)
             sec.set_leverage(4)  # broker margin headroom; real exposure is capped by max_leverage
             self.systems[sec.symbol] = StarterSystem(
-                signal_type=signal_type, stop_fraction=stop_fraction, allow_short=allow_short)
+                signal_type=signal_type, stop_fraction=stop_fraction, allow_short=allow_short,
+                wait_for_flip=wait_for_flip)
 
         # 64-day MA plus some slack, in trading days
         self.set_warm_up(timedelta(days=110))

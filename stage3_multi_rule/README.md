@@ -63,6 +63,12 @@ Note: Stage 3 trading waits until every price rule is ready (320 days for the sl
 The 550-day warm-up covers that for all ten ETFs before Jan 2008 except FXY (listed Feb 2007),
 which starts trading a few weeks later than in Stage 2.
 
+**Start of trading (`wait_for_flip`, default true, same in Stage 2):** the start is treated like a
+stop-out. The direction of the first combined vote is blocked, and the first trade opens only when
+the vote flips. This matches Carver's re-entry rule and avoids entering mid-trend. With 18 years of
+data the few weeks or months lost at the start do not matter. `wait_for_flip=false` opens on the
+current vote right after warm-up. Keep the setting the same in both stages for the regression check.
+
 ## Running on QuantConnect
 
 1. Create a new Python project, e.g. `CarverStage3`.
@@ -77,7 +83,7 @@ With the LEAN CLI: copy `main.py` and the three `carver_lib` files into the proj
 
 ## Parameters
 
-Same as Stage 2 (`symbols`, `target_risk`, `idm`, `stop_fraction`, `allow_short`, `max_leverage`,
+Same as Stage 2 (`symbols`, `target_risk`, `idm`, `stop_fraction`, `allow_short`, `wait_for_flip`, `max_leverage`,
 `start_year`, `end_year`, `cash`), plus:
 
 | Name | Default | Meaning |
