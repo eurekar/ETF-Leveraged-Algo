@@ -10,7 +10,7 @@ Usage:
       [--split 2016-01-01] [--csv out.csv]
 
 Prints a Markdown table with: annual return, realised vol, Sharpe, max drawdown,
-longest drawdown, monthly skew, orders, fees, turnover, and the same metrics for
+longest drawdown, monthly skew, orders (opens, stops, buffer adjusts), fees, turnover, and the same metrics for
 the two halves of the sample (split date). Needs numpy and pandas only.
 """
 import argparse
@@ -110,6 +110,7 @@ def scorecard(equity, orders=None):
         row["Orders"] = len(o)
         row["Opens"] = int(o.tag.str.startswith("Open").sum())
         row["Stops"] = int(o.tag.str.startswith("Stop").sum())
+        row["Adjusts"] = int(o.tag.str.startswith("Adjust").sum())   # Stage 4+ buffer trades
         row["Turnover (x equity/yr)"] = o.notional.sum() / equity.mean() / years
     return row
 
@@ -159,7 +160,7 @@ def main(argv=None):
         for col in fmt.columns:
             v = table.loc[idx, col]
             fmt.loc[idx, col] = "" if v is None or (isinstance(v, float) and math.isnan(v)) else (
-                f"{v:,.0f}" if idx in ("Orders", "Opens", "Stops", "Longest DD (days)") else f"{v:,.2f}")
+                f"{v:,.0f}" if idx in ("Orders", "Opens", "Stops", "Adjusts", "Longest DD (days)") else f"{v:,.2f}")
     print(to_markdown(fmt))
     if a.csv:
         table.to_csv(a.csv)
