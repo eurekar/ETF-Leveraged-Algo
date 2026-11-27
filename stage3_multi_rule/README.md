@@ -47,8 +47,8 @@ decides the direction and the re-entry rule then locks the ETF out.**
 1. With carry at 50%, the eight trend rules together weigh 50%. They can at most tie carry
    (all eight against it), never outvote it. So the trade direction is simply the sign of carry.
 2. After a stop-out, the re-entry rule waits for the direction to flip. That now means waiting
-   for carry to change sign, which for an ETF happens only when rates move past its yield
-   (for example 2008-09 and 2022). Until then the ETF sits flat, for years.
+   for carry to change sign, which for an ETF happens only when the short rate crosses its yield
+   (a few times in 18 years at most). Until then the ETF sits flat, often for years.
 3. `wait_for_flip` does the same at the start: no first trade until carry flips.
 
 Offline check (`python research/reentry_lockout_sim.py`, 20 synthetic 18-year paths with carry
