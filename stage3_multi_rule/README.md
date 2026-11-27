@@ -36,9 +36,30 @@ behave the same way.
 | Stage 3, 30/30/40 (earlier default) | 0.54 |
 | Stage 3, trend only | 0.44 |
 | Stage 3, 25% carry | 0.34 |
+| Stage 3, 25/25/50 (current default) | 0.25 (46 opens) |
 
 All are within about one standard error of each other (roughly 0.24 over 18 years), so the
 weights are not tuned on these numbers.
+
+**25/25/50 run: Sharpe 0.25, only 46 opens in 18 years, 2.7% vol. Cause confirmed: carry
+decides the direction and the re-entry rule then locks the ETF out.**
+
+1. With carry at 50%, the eight trend rules together weigh 50%. They can at most tie carry
+   (all eight against it), never outvote it. So the trade direction is simply the sign of carry.
+2. After a stop-out, the re-entry rule waits for the direction to flip. That now means waiting
+   for carry to change sign, which for an ETF happens only when rates move past its yield
+   (for example 2008-09 and 2022). Until then the ETF sits flat, for years.
+3. `wait_for_flip` does the same at the start: no first trade until carry flips.
+
+Offline check (`python research/reentry_lockout_sim.py`, 20 synthetic 18-year paths with carry
+always positive): median trades per path are Stage 2 42, trend only 30, 30/30/40 26, 25/25/50 0.
+At 30/30/40 trend can still override carry, but only on a 7-1 or 8-0 split, which is why that
+run also traded less than Stage 2.
+
+Conclusion: with binary votes, stops and a flip-to-re-enter rule, any slow rule with half the
+weight or more freezes the system. This is a property of combining Stage 3's mechanics, not
+evidence against carry. Stage 4 drops stops and the re-entry rule, so carry's weight works there
+as intended.
 
 **Forecast scaling and FDM:** not used at this stage on purpose. Multiplying a forecast by a positive
 scalar or by the FDM never changes its sign, so with binary positions they have no effect.
