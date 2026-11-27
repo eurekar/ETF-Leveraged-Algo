@@ -116,15 +116,25 @@ def test_weights():
     rules = build_rules(DEFAULT_RULES)
     w = rule_weights(rules)
     assert abs(sum(w.values()) - 1) < 1e-12
-    assert abs(w["mac16_64"] - 0.0625) < 1e-12 and abs(w["breakout40"] - 0.0625) < 1e-12
-    assert abs(w["carry"] - 0.5) < 1e-12
+    assert abs(w["mac16_64"] - 0.075) < 1e-12 and abs(w["breakout40"] - 0.075) < 1e-12
+    assert abs(w["carry"] - 0.4) < 1e-12
     assert rule_weights(build_rules("mac16")) == {"mac16_64": 1.0}
     w2 = rule_weights(build_rules("mac16,mac64,carry"))       # families renormalise
-    assert abs(w2["carry"] - 0.5 / 0.75) < 1e-12
+    assert abs(w2["carry"] - 0.4 / 0.7) < 1e-12
 
 
-def test_ties_only_when_all_trend_rules_oppose_carry():
+def test_no_ties_with_default_weights():
     w = rule_weights(build_rules(DEFAULT_RULES))
+    names = list(w)
+    for votes in itertools.product([-1, 1], repeat=len(names)):
+        assert abs(sum(w[n] * x for n, x in zip(names, votes))) > 1e-9
+
+
+CARVER_25_25_50 = {"mac": 0.25, "breakout": 0.25, "carry": 0.5}
+
+
+def test_25_25_50_ties_only_when_all_trend_rules_oppose_carry():
+    w = rule_weights(build_rules(DEFAULT_RULES), CARVER_25_25_50)
     names = list(w)
     ties = []
     for votes in itertools.product([-1, 1], repeat=len(names)):
@@ -138,7 +148,7 @@ def test_ties_only_when_all_trend_rules_oppose_carry():
 
 
 def test_tie_means_no_new_trade():
-    s = MultiRuleSystem()
+    s = MultiRuleSystem(family_weights=CARVER_25_25_50)
     for i, c in enumerate(PX[:400]):
         s.add_close(c, DATES[i], 0.02)
     assert s.ready and s.carry_rule.ready

@@ -9,23 +9,23 @@ untouched. Universe, dates, capital, risk target, IDM and leverage cap are the s
 
 | Family | Variants | Raw value | Weight |
 |---|---|---|---|
-| Moving-average crossover | 8/32, 16/64, 32/128, 64/256 | fast MA minus slow MA (SMA like Stage 2; `ma_type=ewma` for EWMAC) | 25% (6.25% each) |
-| Breakout | N = 40, 80, 160, 320 | (close − range midpoint) / range of the last N closes, EWMA-smoothed with span N/4 | 25% (6.25% each) |
-| Carry | one | 12-month distribution yield − funding rate | 50% |
+| Moving-average crossover | 8/32, 16/64, 32/128, 64/256 | fast MA minus slow MA (SMA like Stage 2; `ma_type=ewma` for EWMAC) | 30% (7.5% each) |
+| Breakout | N = 40, 80, 160, 320 | (close − range midpoint) / range of the last N closes, EWMA-smoothed with span N/4 | 30% (7.5% each) |
+| Carry | one | 12-month distribution yield − funding rate | 40% |
 
 Each ready rule votes +1/−1. Combined vote = Σ wᵢ·voteᵢ / Σ wᵢ (over ready rules), in [−1, +1].
 Trade direction = sign of the combined vote. A rule that is still warming up sits out and the
 weights of the others are renormalised (this only happens for carry in an ETF's first year).
 
-**Why 25/25/50:** Carver's handcrafting method. Equal weight between the two styles (trend and
-carry), then equal weight inside trend. The weights were picked for fidelity to the book, before
-looking at results, and are not tuned. Change them with `w_mac`, `w_breakout`, `w_carry`.
+**Why 30/30/40:** with 30/30/40 a tie is impossible once all rules are ready (`tests/test_stage3.py`
+checks all 512 vote patterns), and trend can still outvote carry on a 7-1 or 8-0 split. Carver's
+handcrafted 25/25/50 (equal weight trend vs carry) was tried as the default and reverted: in this
+stage it freezes the system (see below). It stays available with `w_mac=0.25`, `w_breakout=0.25`,
+`w_carry=0.5`.
 
-**Ties:** with binary votes the vote is exactly 0 in one pattern only: all eight trend rules agree
-and carry points the other way (2 of 512 patterns; `tests/test_stage3.py` checks this). A tie
-gives signal 0. A flat ETF waits until a rule changes, and an open trade is left to its stop. That
-is the binary version of a zero forecast. Trend-only runs (8 equal rules) tie on any 4-4 split and
-behave the same way.
+**Ties:** any tie gives signal 0. A flat ETF waits until a rule changes, and an open trade is left to
+its stop. That is the binary version of a zero forecast. 25/25/50 ties only when all eight trend
+rules oppose carry; trend-only runs (8 equal rules) tie on any 4-4 split.
 
 **Results so far (QuantConnect, 2008 to Dec 2025):**
 
@@ -33,10 +33,10 @@ behave the same way.
 |---|---|
 | Stage 2 baseline | 0.60 |
 | Stage 3, `rules=mac16` | matches Stage 2 exactly (regression check passed) |
-| Stage 3, 30/30/40 (earlier default) | 0.54 |
+| Stage 3, 30/30/40 (default) | 0.54 |
 | Stage 3, trend only | 0.44 |
 | Stage 3, 25% carry | 0.34 |
-| Stage 3, 25/25/50 (current default) | 0.25 (46 opens) |
+| Stage 3, 25/25/50 (tried, reverted) | 0.25 (46 opens) |
 
 All are within about one standard error of each other (roughly 0.24 over 18 years), so the
 weights are not tuned on these numbers.
@@ -129,7 +129,7 @@ Same as Stage 2 (`symbols`, `target_risk`, `idm`, `stop_fraction`, `allow_short`
 |---|---|---|
 | `rules` | all nine | Comma list: `mac16` (= 16/64), `mac16_64`, `breakout40`, `carry`, ... |
 | `ma_type` | sma | `sma` (as Stage 2) or `ewma` |
-| `w_mac`, `w_breakout`, `w_carry` | 0.25, 0.25, 0.5 | Family weights, split evenly inside each family |
+| `w_mac`, `w_breakout`, `w_carry` | 0.3, 0.3, 0.4 | Family weights, split evenly inside each family |
 | `funding_spread` | 0.0 | Added to the risk-free rate in carry |
 | `funding_rate` | 0.02 | Fallback funding rate if LEAN's risk-free model is unavailable |
 | `warmup_days` | 550 | Calendar days of warm-up |

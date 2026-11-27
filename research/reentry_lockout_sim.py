@@ -18,7 +18,7 @@ for seed in range(20):
     cfgs = {"stage2": StarterSystem(wait_for_flip=True),
             "trend_only": MultiRuleSystem(rules_spec="mac8,mac16,mac32,mac64,breakout40,breakout80,breakout160,breakout320", wait_for_flip=True),
             "30/30/40": MultiRuleSystem(family_weights={"mac":.3,"breakout":.3,"carry":.4}, wait_for_flip=True),
-            "25/25/50": MultiRuleSystem(wait_for_flip=True)}
+            "25/25/50": MultiRuleSystem(family_weights={"mac":.25,"breakout":.25,"carry":.5}, wait_for_flip=True)}
     for k, s in cfgs.items():
         t = run(s, px, rf=0.01, distributions=dists)
         res.setdefault(k, []).append(len(t))

@@ -15,25 +15,23 @@ re-entry rule) is the Stage 2 Starter System, unchanged.
 
 Weights are set per rule family and split evenly inside the family:
 
-    mac 25%  (4 speeds -> 6.25% each)
-    breakout 25%  (4 speeds -> 6.25% each)
-    carry 50%
+    mac 30%  (4 speeds -> 7.5% each)
+    breakout 30%  (4 speeds -> 7.5% each)
+    carry 40%
 
-These follow Carver's handcrafting: equal weight between the two styles
-(trend and carry), then equal weight inside trend. They were chosen for
-fidelity to the book, before seeing any backtest, and are not tuned.
-
-With binary votes this can tie (vote exactly 0) in one pattern only: all
-eight trend rules agree and carry points the other way (2 of 512 vote
-patterns). A tie gives signal 0: a flat ETF waits until a rule changes, and an
-open trade is left to its stop. That is the binary version of a zero forecast.
+With these weights a tie cannot happen once all rules are ready. Carver's
+handcrafted 25/25/50 (w_carry=0.5) is available as a parameter, but in this
+binary, stop-based stage it freezes the system: trend can never outvote
+carry, so direction = sign(carry), and after a stop the re-entry rule waits
+for carry to change sign (see stage3_multi_rule/README.md). Any tie gives
+signal 0: a flat ETF waits until a rule changes.
 
 Forecast scalars and the forecast diversification multiplier do not appear
 here on purpose: multiplying by a positive number never changes a sign, so
 they only matter once position size follows forecast strength (Stage 5).
 """
 
-DEFAULT_FAMILY_WEIGHTS = {"mac": 0.25, "breakout": 0.25, "carry": 0.5}
+DEFAULT_FAMILY_WEIGHTS = {"mac": 0.3, "breakout": 0.3, "carry": 0.4}
 
 
 def rule_weights(rules, family_weights=None):
