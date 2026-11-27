@@ -80,7 +80,7 @@ def load_stat(result, key):
 # ---------------------------------------------------------------------------
 def scorecard(equity, orders=None):
     rets = equity.pct_change().dropna()
-    rets = rets[rets.index.dayofweek < 5]
+    rets = rets[rets.index.day_of_week < 5]
     years = max((equity.index[-1] - equity.index[0]).days / 365.25, 1e-9)
     cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1
     vol = rets.std() * 16
