@@ -116,19 +116,39 @@ def test_weights():
     rules = build_rules(DEFAULT_RULES)
     w = rule_weights(rules)
     assert abs(sum(w.values()) - 1) < 1e-12
-    assert abs(w["mac16_64"] - 0.075) < 1e-12 and abs(w["breakout40"] - 0.075) < 1e-12
-    assert abs(w["carry"] - 0.4) < 1e-12
+    assert abs(w["mac16_64"] - 0.0625) < 1e-12 and abs(w["breakout40"] - 0.0625) < 1e-12
+    assert abs(w["carry"] - 0.5) < 1e-12
     assert rule_weights(build_rules("mac16")) == {"mac16_64": 1.0}
     w2 = rule_weights(build_rules("mac16,mac64,carry"))       # families renormalise
-    assert abs(w2["carry"] - 0.4 / 0.7) < 1e-12
+    assert abs(w2["carry"] - 0.5 / 0.75) < 1e-12
 
 
-def test_no_ties_with_default_weights():
+def test_ties_only_when_all_trend_rules_oppose_carry():
     w = rule_weights(build_rules(DEFAULT_RULES))
     names = list(w)
+    ties = []
     for votes in itertools.product([-1, 1], repeat=len(names)):
         v = sum(w[n] * x for n, x in zip(names, votes))
-        assert abs(v) > 1e-9
+        if abs(v) < 1e-9:
+            ties.append(dict(zip(names, votes)))
+    assert len(ties) == 2
+    for t in ties:
+        trend = {t[n] for n in names if n != "carry"}
+        assert len(trend) == 1 and trend != {t["carry"]}
+
+
+def test_tie_means_no_new_trade():
+    s = MultiRuleSystem()
+    for i, c in enumerate(PX[:400]):
+        s.add_close(c, DATES[i], 0.02)
+    assert s.ready and s.carry_rule.ready
+    trend = [r for r in s.price_rules]
+    for r in trend:
+        r.vote = lambda: 1
+    s.carry_rule.vote = lambda: -1
+    assert s.combined_vote() == 0 and s.signal() == 0 and s.wants_to_open() == 0
+    s.carry_rule.vote = lambda: 1
+    assert s.signal() == 1 and s.wants_to_open() == 1
 
 
 def test_mac16_only_reproduces_stage2():

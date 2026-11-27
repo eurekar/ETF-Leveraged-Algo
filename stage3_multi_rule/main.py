@@ -12,9 +12,9 @@ class CarverMultiRuleSystem(QCAlgorithm):
 
     Only the opening decision changes from Stage 2. Each ETF's direction is the sign
     of a weighted vote of:
-        moving-average crossovers 8/32, 16/64, 32/128, 64/256   (30%)
-        breakouts over 40, 80, 160, 320 days                    (30%)
-        carry: 12-month distribution yield minus funding rate   (40%)
+        moving-average crossovers 8/32, 16/64, 32/128, 64/256   (25%)
+        breakouts over 40, 80, 160, 320 days                    (25%)
+        carry: 12-month distribution yield minus funding rate   (50%)
     Instrument risk, sizing fixed at entry, the trailing stop on the close and the
     no-same-direction re-entry rule are the Stage 2 code, unchanged.
 
@@ -25,7 +25,7 @@ class CarverMultiRuleSystem(QCAlgorithm):
       max_leverage, start_year, end_year, cash   as Stage 2
       rules           comma list, default all nine rules (see rules.py for syntax)
       ma_type         "sma" (default, as Stage 2) or "ewma" for the crossovers
-      w_mac, w_breakout, w_carry   family weights, default 0.3 / 0.3 / 0.4
+      w_mac, w_breakout, w_carry   family weights, default 0.25 / 0.25 / 0.5
       funding_spread  added to the risk-free rate for carry, default 0.0
       funding_rate    fixed funding rate to use if LEAN's risk-free model is not
                       available, default 0.02
