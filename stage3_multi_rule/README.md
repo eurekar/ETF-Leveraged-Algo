@@ -80,6 +80,31 @@ carry = Σ over the last 365 days of (distribution / price before ex-date)  − 
   is not available the algo falls back to the fixed `funding_rate` parameter and says so in the log.
 - `funding_spread` (default 0) is the broker's markup; IB charges roughly benchmark + 0.5% to 1.5%.
 
+## Risk-free rate: source, units, how to check it
+
+- **Source.** LEAN's default `InterestRateProvider` reads `alternative/interest-rate/usa/interest-rate.csv`,
+  which is the Fed **primary credit rate** (discount window, FRED series `PCREDIT8`). It is a step series
+  that changes only on Fed decision dates; LEAN forward-fills it to every calendar day.
+- **Units.** The file is in percent; LEAN divides by 100, so the algo gets an **annual rate as a decimal**
+  (0.055 = 5.5% a year). Carry uses it directly against the 12-month distribution yield, also annual decimal.
+- **Frequency and lag.** Looked up once a day with the bar time, so a Fed change reaches the carry rule
+  the next trading day. Before 1998 or after the file's last date LEAN uses the first/last value.
+- **Fallback.** If the model call fails, the fixed `funding_rate` (default 2%) is used, the log says so
+  and the runtime statistic shows `(fixed)`.
+- **Where it enters.** Only the carry rule: `carry = distribution yield - (rf + funding_spread)`.
+  It does not change P&L: the backtest charges no margin interest and pays none on cash (LEAN's default
+  for US equities). QC's own Sharpe statistic subtracts this same rate.
+- **Dashboard.** Chart `Risk-free rate (%)`: `LEAN risk-free` and `Carry funding (rf + spread)`, in percent,
+  plotted weekly and on each change. Log lines `RF <date>: old -> new` on each change and once a quarter.
+  Runtime statistic `Risk-free rate` shows the last value and its source.
+- **Not a T-bill rate.** Primary credit is a penalty rate: fed funds target + 0.5% to 1% before March 2020,
+  the top of the target range since. It runs above the 3-month T-bill (FRED `DTB3`), by roughly half a
+  point to three quarters in 2008-2019 and less since 2020. As a funding cost for a margin account it is
+  still below what IB charges (benchmark + 0.5% to 1.5%), so `funding_spread` can close that gap.
+- **Check it.** Download DTB3 from FRED as CSV, download the backtest JSON, then
+  `python research/check_risk_free.py backtest.json --fred DTB3.csv`. It lists every rate change the
+  backtest saw (compare with the Fed's primary credit table) and the yearly gap to DTB3.
+
 What this proxy captures, per ETF:
 
 | ETF | Distribution is | Carry reads as |
