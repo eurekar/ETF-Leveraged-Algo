@@ -29,6 +29,11 @@ class CarverMultiRuleSystem(QCAlgorithm):
       funding_spread  added to the risk-free rate for carry, default 0.0
       funding_rate    fixed funding rate to use if LEAN's risk-free model is not
                       available, default 0.02
+
+    Risk-free rate: LEAN's default model (Fed primary credit rate, FRED PCREDIT8, annual,
+    read as a decimal), looked up once a day. It is charted as "Risk-free rate (%)" (weekly
+    and on every change) and logged as "RF <date>: ..." on every change and once a quarter.
+    research/check_risk_free.py compares the charted series with FRED DTB3.
       warmup_days     calendar days of warm-up, default 550 (320-day breakout + slack)
     """
 
@@ -56,9 +61,19 @@ class CarverMultiRuleSystem(QCAlgorithm):
             "carry": float(self._param("w_carry", DEFAULT_FAMILY_WEIGHTS["carry"])),
         }
         funding_spread = float(self._param("funding_spread", 0.0))
+        self.funding_spread = funding_spread
         self.fixed_funding_rate = float(self._param("funding_rate", 0.02))
         self._rf_date, self._rf = None, None
         self._rf_warned = False
+        self._rf_source = "LEAN"          # "LEAN" or "fixed" (fallback)
+        self._rf_logged = None            # last rate written to the log
+        self._rf_quarter = None           # (year, quarter) of the last periodic log
+
+        # Dashboard chart for the rate the carry rule uses, in percent (same units as FRED DTB3)
+        rf_chart = Chart("Risk-free rate (%)")
+        rf_chart.add_series(Series("LEAN risk-free", SeriesType.LINE, 0, "%"))
+        rf_chart.add_series(Series("Carry funding (rf + spread)", SeriesType.LINE, 0, "%"))
+        self.add_chart(rf_chart)
 
         self.systems = {}
         for t in tickers:
@@ -87,13 +102,35 @@ class CarverMultiRuleSystem(QCAlgorithm):
             return self._rf
         try:
             rf = float(self.risk_free_interest_rate_model.get_interest_rate(self.time))
+            self._rf_source = "LEAN"
         except Exception as e:  # older LEAN or model not available
             if not self._rf_warned:
                 self.debug(f"Risk-free model unavailable ({e}); using fixed funding_rate {self.fixed_funding_rate:.2%}")
                 self._rf_warned = True
             rf = self.fixed_funding_rate
+            self._rf_source = "fixed"
+        changed = self._rf is not None and rf != self._rf
         self._rf_date, self._rf = today, rf
+        self._log_risk_free(today, rf, changed)
         return rf
+
+    def _log_risk_free(self, today, rf, changed):
+        """Plot the rate on every change (exact step dates) and log it on change and once a quarter."""
+        quarter = (today.year, (today.month - 1) // 3)
+        if changed or self._rf_logged is None:
+            prev = "start" if self._rf_logged is None else f"{self._rf_logged:.2%}"
+            self.log(f"RF {today}: {prev} -> {rf:.2%} (source {self._rf_source}, "
+                     f"carry funding {rf + self.funding_spread:.2%})")
+            self._rf_logged, self._rf_quarter = rf, quarter
+            self._plot_risk_free(rf)
+        elif quarter != self._rf_quarter:
+            self.log(f"RF {today}: {rf:.2%} (source {self._rf_source}, "
+                     f"carry funding {rf + self.funding_spread:.2%})")
+            self._rf_quarter = quarter
+
+    def _plot_risk_free(self, rf):
+        self.plot("Risk-free rate (%)", "LEAN risk-free", 100.0 * rf)
+        self.plot("Risk-free rate (%)", "Carry funding (rf + spread)", 100.0 * (rf + self.funding_spread))
 
     # ------------------------------------------------------------------
     def on_data(self, data: Slice):
@@ -162,7 +199,7 @@ class CarverMultiRuleSystem(QCAlgorithm):
                 c = sys.carry_rule
                 if c is not None and c.ready:
                     self.plot("Carry (annual)", symbol.value, c.carry())
-            self.plot("Funding rate", "risk-free", rf)
+            self._plot_risk_free(rf)
 
     def _cap_for_leverage(self, symbol, shares, price, equity):
         """Shrink a new position so gross notional stays under max_leverage x equity."""
@@ -179,6 +216,8 @@ class CarverMultiRuleSystem(QCAlgorithm):
     def on_end_of_algorithm(self):
         self.set_runtime_statistic("Trades opened", str(self.opens))
         self.set_runtime_statistic("Stops hit", str(self.stops))
+        if self._rf is not None:
+            self.set_runtime_statistic("Risk-free rate", f"{self._rf:.2%} ({self._rf_source})")
         for symbol, sys in self.systems.items():
             c = sys.carry_rule
             carry = f"{c.carry():+.2%}" if c is not None and c.ready else "n/a"
