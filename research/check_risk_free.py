@@ -12,6 +12,12 @@ Any FRED daily or step series in percent works (e.g. PCREDIT8 itself, DFF, DGS3M
 
 Usage:
   python research/check_risk_free.py path/to/backtest.json [--fred DTB3.csv] [--csv out.csv]
+      [--series "Risk-free used"]
+
+--series picks which line of the "Risk-free rate (%)" chart to read: "LEAN risk-free"
+(default, primary credit), "Risk-free used" (the rate the run used: DTB3 with rf_source=dtb3)
+or "Carry funding (rf + spread)". With rf_source=dtb3, "Risk-free used" vs DTB3 should show a
+gap near zero (the weekly sampling and the one-day publication lag leave a few bp).
 
 Needs pandas only.
 """
@@ -21,10 +27,10 @@ import json
 import pandas as pd
 
 
-def load_rf(result):
-    """Daily series of the backtest's risk-free rate, in percent."""
+def load_rf(result, series="LEAN risk-free"):
+    """Daily series of one line of the backtest's risk-free chart, in percent."""
     charts = result.get("charts") or result.get("Charts") or {}
-    for chart_name, series_name, scale in (("Risk-free rate (%)", "LEAN risk-free", 1.0),
+    for chart_name, series_name, scale in (("Risk-free rate (%)", series, 1.0),
                                            ("Funding rate", "risk-free", 100.0)):
         chart = charts.get(chart_name) or {}
         series = chart.get("series") or chart.get("Series") or {}
@@ -40,7 +46,7 @@ def load_rf(result):
             rf = pd.Series([v for _, v in pts], index=pd.to_datetime([t for t, _ in pts], unit="s"))
             rf = rf[~rf.index.duplicated(keep="last")].sort_index()
             return rf.resample("1D").last().ffill()
-    raise ValueError("No risk-free series found (looked for 'Risk-free rate (%)' and 'Funding rate' charts)")
+    raise ValueError(f"No '{series}' series found (looked for 'Risk-free rate (%)' and 'Funding rate' charts)")
 
 
 def load_fred(path):
@@ -62,10 +68,11 @@ def main():
     ap.add_argument("backtest")
     ap.add_argument("--fred", help="FRED CSV to compare with, e.g. DTB3.csv")
     ap.add_argument("--csv", help="write the yearly comparison here")
+    ap.add_argument("--series", default="LEAN risk-free", help="line of the 'Risk-free rate (%%)' chart")
     a = ap.parse_args()
 
     with open(a.backtest, encoding="utf-8") as f:
-        rf = load_rf(json.load(f))
+        rf = load_rf(json.load(f), a.series)
 
     print("Rate changes seen in the backtest (chart is sampled weekly and on change days,")
     print("so a change can show up to a few days after the Fed's effective date):\n")
@@ -81,7 +88,7 @@ def main():
     yearly = both.groupby(both.index.year).mean()
     yearly["gap (lean - %s)" % name] = yearly["lean"] - yearly[name]
     print(f"\nYearly averages, percent (business days where both exist):\n")
-    print(f"| year | LEAN | {name} | gap |\n|---|---|---|---|")
+    print(f"| year | backtest ({a.series}) | {name} | gap |\n|---|---|---|---|")
     for y, r in yearly.iterrows():
         print(f"| {y} | {r['lean']:.2f} | {r[name]:.2f} | {r.iloc[2]:+.2f} |")
     gap = both["lean"] - both[name]

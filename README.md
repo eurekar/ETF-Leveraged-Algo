@@ -19,6 +19,7 @@ carver_lib/          shared logic, no LEAN imports, tested offline
   starter_core.py    Stage 2: instrument risk, sizing, trailing stop, re-entry rule
   rules.py           Stage 3: crossover, breakout, carry
   combine.py         Stage 3: rule weights, combined vote, MultiRuleSystem
+  rates.py           FRED CSV parsing and lagged rate lookup (DTB3 risk-free, rf_source=dtb3)
 stage2_starter/      main.py (QC algorithm) + README
 stage3_multi_rule/   main.py (QC algorithm) + README
 tests/               python -m pytest tests   (needs numpy, pandas, pytest)
