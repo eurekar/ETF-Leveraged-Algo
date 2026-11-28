@@ -3,6 +3,7 @@ from AlgorithmImports import *
 from starter_core import position_size
 from combine import MultiRuleSystem, DEFAULT_FAMILY_WEIGHTS
 from rules import DEFAULT_RULES
+from rates import StepRate, parse_fred_csv, FRED_DTB3_URL
 # endregion
 
 
@@ -29,11 +30,22 @@ class CarverMultiRuleSystem(QCAlgorithm):
       funding_spread  added to the risk-free rate for carry, default 0.0
       funding_rate    fixed funding rate to use if LEAN's risk-free model is not
                       available, default 0.02
+      rf_source       which risk-free rate to use, default "lean" (the Stage 3 baseline):
+                        lean      LEAN's default model, Fed primary credit (FRED PCREDIT8)
+                        dtb3      3-month T-bill, FRED DTB3, read from the Object Store key
+                                  dtb3_key (default "DTB3.csv") or downloaded from dtb3_url
+                                  (default FRED). Falls back to "treasury" if neither works.
+                        treasury  QC's US Treasury yield curve dataset, 3-month yield
+                      With dtb3/treasury the rate is installed as the algorithm's risk-free
+                      model, so QC's Sharpe uses it too, and carry funding = that rate +
+                      funding_spread.
 
-    Risk-free rate: LEAN's default model (Fed primary credit rate, FRED PCREDIT8, annual,
-    read as a decimal), looked up once a day. It is charted as "Risk-free rate (%)" (weekly
-    and on every change) and logged as "RF <date>: ..." on every change and once a quarter.
-    research/check_risk_free.py compares the charted series with FRED DTB3.
+    Two jobs, one rate each: the risk-free rate measures performance (QC's Sharpe);
+    carry's funding cost is risk-free + funding_spread (what financing a margin
+    position costs). Charted as "Risk-free rate (%)": "LEAN risk-free" (primary credit,
+    for reference), "Risk-free used" and "Carry funding (rf + spread)". Logged as
+    "RF <date>: ..." on every change of a step series and once a quarter.
+    research/check_risk_free.py compares a charted series with FRED DTB3.
       warmup_days     calendar days of warm-up, default 550 (320-day breakout + slack)
     """
 
@@ -65,13 +77,14 @@ class CarverMultiRuleSystem(QCAlgorithm):
         self.fixed_funding_rate = float(self._param("funding_rate", 0.02))
         self._rf_date, self._rf = None, None
         self._rf_warned = False
-        self._rf_source = "LEAN"          # "LEAN" or "fixed" (fallback)
+        self._rf_source = "LEAN"          # "LEAN", "DTB3", "UST3M" or "fixed" (fallback)
         self._rf_logged = None            # last rate written to the log
         self._rf_quarter = None           # (year, quarter) of the last periodic log
 
         # Dashboard chart for the rate the carry rule uses, in percent (same units as FRED DTB3)
         rf_chart = Chart("Risk-free rate (%)")
         rf_chart.add_series(Series("LEAN risk-free", SeriesType.LINE, 0, "%"))
+        rf_chart.add_series(Series("Risk-free used", SeriesType.LINE, 0, "%"))
         rf_chart.add_series(Series("Carry funding (rf + spread)", SeriesType.LINE, 0, "%"))
         self.add_chart(rf_chart)
 
@@ -88,6 +101,14 @@ class CarverMultiRuleSystem(QCAlgorithm):
         self.debug("Rule weights: " + ", ".join(f"{k} {v:.3f}" for k, v in first.weights.items()))
 
         self.set_warm_up(timedelta(days=int(self._param("warmup_days", 550))))
+        self._lean_rates = None   # LEAN's primary-credit provider, kept for the chart
+        self._rf_series = None    # StepRate when rf_source is dtb3 / treasury
+        self._treasury = None     # US Treasury yield curve symbol (rf_source=treasury)
+        self._lean_rf_value = None
+        self._rf_model_checked = False
+        self.rf_source = self._param("rf_source", "lean").strip().lower()
+        if self.rf_source != "lean":
+            self._setup_external_rate()
         self.set_benchmark("SPY")
         self.opens, self.stops = 0, 0
 
@@ -95,11 +116,103 @@ class CarverMultiRuleSystem(QCAlgorithm):
         v = self.get_parameter(name)
         return default if v is None or v == "" else v
 
+    # ------------------------------------------------------------------
+    # Risk-free rate other than LEAN's default (rf_source = dtb3 / treasury)
+    def _setup_external_rate(self):
+        try:
+            self._lean_rates = InterestRateProvider()
+        except Exception as e:
+            self.debug(f"LEAN InterestRateProvider not available for the chart ({e})")
+        src = self.rf_source
+        if src == "dtb3":
+            pts = self._load_dtb3()
+            if pts:
+                # DTB3 for day t is published on t+1: use values up to the day before.
+                self._rf_series = StepRate(pts, lag_days=1, name="DTB3")
+                self._rf_source = "DTB3"
+            else:
+                self.debug("DTB3 not available; falling back to rf_source=treasury")
+                src = "treasury"
+        if src == "treasury":
+            try:
+                self._treasury = self.add_data(USTreasuryYieldCurveRate, "USTYCR", Resolution.DAILY).symbol
+                # Filled in on_data as each day's yields arrive (warm-up included), so no look-ahead.
+                self._rf_series = StepRate(lag_days=0, name="UST3M")
+                self._rf_source = "UST3M"
+            except Exception as e:
+                self.debug(f"US Treasury yield curve not available ({e}); using LEAN's default rate")
+                self._rf_series, self._rf_source = None, "LEAN"
+        if src not in ("dtb3", "treasury"):
+            self.debug(f"Unknown rf_source '{self.rf_source}'; using LEAN's default rate")
+        if self._rf_series is not None:
+            try:
+                self.set_risk_free_interest_rate_model(SeriesRiskFreeModel(self))
+            except Exception as e:
+                self.debug(f"Could not install {self._rf_source} as the risk-free model ({e}); "
+                           f"carry uses it, QC's Sharpe still uses LEAN's default")
+
+    def _load_dtb3(self):
+        key = self._param("dtb3_key", "DTB3.csv")
+        text, where = None, None
+        try:
+            if self.object_store.contains_key(key):
+                text, where = self.object_store.read(key), f"Object Store '{key}'"
+        except Exception as e:
+            self.debug(f"Object Store read of '{key}' failed ({e})")
+        if not text:
+            url = self._param("dtb3_url", FRED_DTB3_URL)
+            try:
+                text, where = self.download(url), url
+            except Exception as e:
+                self.debug(f"Download of {url} failed ({e})")
+        pts = parse_fred_csv(text) if text else []
+        if pts:
+            self.debug(f"DTB3 from {where}: {len(pts)} days, {pts[0][0]} to {pts[-1][0]}, "
+                       f"last {pts[-1][1]:.2%}")
+            end = datetime(int(self._param("end_year", 2025)), 12, 1).date()
+            if pts[-1][0] < end:
+                self.debug(f"DTB3 ends {pts[-1][0]}, before the backtest end; the last value is carried forward")
+        elif text:
+            self.debug(f"DTB3 from {where} had no usable rows (first 80 chars: {text[:80]!r})")
+        return pts
+
+    def _series_rate(self, when):
+        """Rate from the external series, else the first value it has, else LEAN / fixed."""
+        rf = self._rf_series.rate_at(when) if self._rf_series is not None else None
+        if rf is None and self._rf_series is not None and len(self._rf_series):
+            rf = self._rf_series.values[0]
+        if rf is None:
+            rf = self._lean_rate(when)
+        return rf if rf is not None else self.fixed_funding_rate
+
+    def _lean_rate(self, when):
+        try:
+            if self._lean_rates is not None:
+                return float(self._lean_rates.get_interest_rate(when))
+            return float(self.risk_free_interest_rate_model.get_interest_rate(when))
+        except Exception:
+            return None
+
     def _risk_free_rate(self):
-        """Annual risk-free rate (decimal) from LEAN's model, once per day."""
+        """Annual risk-free rate (decimal), once per day: LEAN's model or the rf_source series."""
         today = self.time.date()
         if self._rf_date == today:
             return self._rf
+        if self._rf_series is not None:
+            rf = self._series_rate(self.time)
+            self._lean_rf_value = self._lean_rate(self.time)
+            if not self._rf_model_checked:
+                self._rf_model_checked = True
+                try:
+                    qc = float(self.risk_free_interest_rate_model.get_interest_rate(self.time))
+                    self.debug(f"Risk-free model check {today}: {self._rf_source} {rf:.2%}, "
+                               f"QC model returns {qc:.2%} (should match)")
+                except Exception as e:
+                    self.debug(f"Risk-free model check failed ({e})")
+            changed = False   # daily series: log quarterly only, plot weekly
+            self._rf_date, self._rf = today, rf
+            self._log_risk_free(today, rf, changed)
+            return rf
         try:
             rf = float(self.risk_free_interest_rate_model.get_interest_rate(self.time))
             self._rf_source = "LEAN"
@@ -110,6 +223,7 @@ class CarverMultiRuleSystem(QCAlgorithm):
             rf = self.fixed_funding_rate
             self._rf_source = "fixed"
         changed = self._rf is not None and rf != self._rf
+        self._lean_rf_value = rf
         self._rf_date, self._rf = today, rf
         self._log_risk_free(today, rf, changed)
         return rf
@@ -129,12 +243,24 @@ class CarverMultiRuleSystem(QCAlgorithm):
             self._rf_quarter = quarter
 
     def _plot_risk_free(self, rf):
-        self.plot("Risk-free rate (%)", "LEAN risk-free", 100.0 * rf)
+        if self._lean_rf_value is not None:
+            self.plot("Risk-free rate (%)", "LEAN risk-free", 100.0 * self._lean_rf_value)
+        self.plot("Risk-free rate (%)", "Risk-free used", 100.0 * rf)
         self.plot("Risk-free rate (%)", "Carry funding (rf + spread)", 100.0 * (rf + self.funding_spread))
 
     # ------------------------------------------------------------------
     def on_data(self, data: Slice):
         today = self.time.date()
+
+        # ---- 3-month Treasury yield (rf_source=treasury), percent -> decimal ----
+        if self._treasury is not None:
+            try:
+                if data.contains_key(self._treasury):
+                    pt = data[self._treasury]
+                    if pt.three_month is not None:
+                        self._rf_series.add(pt.time, float(pt.three_month) / 100.0)
+            except Exception as e:
+                self.debug(f"Treasury yield read failed on {today} ({e})")
 
         # ---- distributions (dividends / bond coupons) for carry ----
         for symbol in list(data.dividends.keys()):
@@ -218,7 +344,25 @@ class CarverMultiRuleSystem(QCAlgorithm):
         self.set_runtime_statistic("Stops hit", str(self.stops))
         if self._rf is not None:
             self.set_runtime_statistic("Risk-free rate", f"{self._rf:.2%} ({self._rf_source})")
+            self.set_runtime_statistic("Carry funding", f"{self._rf + self.funding_spread:.2%}")
         for symbol, sys in self.systems.items():
             c = sys.carry_rule
             carry = f"{c.carry():+.2%}" if c is not None and c.ready else "n/a"
             self.log(f"END {symbol.value}: vote {sys.combined_vote():+.2f}, carry {carry}, votes {sys.votes()}")
+
+
+class SeriesRiskFreeModel:
+    """Risk-free model for QC's statistics backed by the algorithm's rf_source series
+    (LEAN IRiskFreeInterestRateModel, duck-typed). Returns an annual rate as a decimal."""
+
+    def __init__(self, algorithm):
+        self.algorithm = algorithm
+
+    def get_interest_rate(self, date):
+        try:
+            when = datetime(date.year, date.month, date.day)
+        except AttributeError:       # a .NET DateTime
+            when = datetime(date.Year, date.Month, date.Day)
+        return float(self.algorithm._series_rate(when))
+
+    GetInterestRate = get_interest_rate

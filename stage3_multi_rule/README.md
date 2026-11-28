@@ -76,9 +76,61 @@ carry = Σ over the last 365 days of (distribution / price before ex-date)  − 
 
 - Distributions come from LEAN `Dividend` events (`distribution`, `reference_price`), so they work in
   the default adjusted-price mode.
-- Risk-free rate comes from LEAN's `risk_free_interest_rate_model` (Fed primary rate). If that model
-  is not available the algo falls back to the fixed `funding_rate` parameter and says so in the log.
+- The rate comes from `rf_source`: LEAN's `risk_free_interest_rate_model` (Fed primary rate) in the
+  baseline, or the 3-month T-bill with `rf_source=dtb3` (see below). If the LEAN model is not available
+  the algo falls back to the fixed `funding_rate` parameter and says so in the log.
 - `funding_spread` (default 0) is the broker's markup; IB charges roughly benchmark + 0.5% to 1.5%.
+
+## T-bill risk-free variant (`rf_source=dtb3`)
+
+The baseline uses one rate for two different jobs:
+
+| Job | What it should be | Baseline | `rf_source=dtb3` |
+|---|---|---|---|
+| Performance: QC's Sharpe subtracts it | risk-free rate: 3-month T-bill | primary credit (about 0.6 pp too high) | DTB3 |
+| Carry: financing cost of a margin position | funding rate: cash rate + broker spread | primary credit + `funding_spread` | DTB3 + `funding_spread` |
+
+With `rf_source=dtb3` the algo reads FRED DTB3, installs it as the algorithm's risk-free model (so QC's
+statistics use it) and passes DTB3 + `funding_spread` to carry. The default stays `rf_source=lean`, so the
+Stage 3 baseline is unchanged and every earlier result still reproduces.
+
+**Which funding spread.** If the ETFs were held fully paid, the carry cost is the interest given up on cash,
+i.e. DTB3 alone (`funding_spread=0`). On margin with IB the cost is roughly fed funds + 1% to 1.5%, so
+`funding_spread=0.01` is the realistic margin case. Run both.
+
+**Data: QuantConnect has no built-in DTB3 this algo can rely on.** LEAN's own interest-rate file is
+primary credit, and QC's FRED coverage is not something to depend on for this series. The algo gets DTB3 in this order, and logs which one it used:
+
+1. Object Store key `DTB3.csv` (parameter `dtb3_key`). Recommended: download the CSV from
+   https://fred.stlouisfed.org/series/DTB3 (Download -> CSV) and upload it in the QC web IDE under
+   *Object Store*, or with `lean cloud object-store set DTB3.csv DTB3.csv`. Same file every run, so results
+   reproduce.
+2. Download from `dtb3_url` (default the FRED CSV link). Works if QC's servers can reach FRED; the file
+   then changes as FRED adds days, which only affects the tail of the sample.
+3. Fallback `rf_source=treasury`: QC's free US Treasury yield curve dataset, 3-month constant-maturity yield
+   (the Treasury's own series, close to FRED DGS3MO). Bond-equivalent basis, so a few bp above DTB3's discount
+   basis; otherwise the same rate. You can also choose it directly.
+
+If everything fails it uses LEAN's default, and the log says so. Check the log line
+`Risk-free model check ...: DTB3 x%, QC model returns x% (should match)`: if the two differ, QC did not
+accept the custom model and its Sharpe still uses primary credit (carry still uses DTB3).
+
+**Look-ahead.** DTB3 for day t is published on t+1, so the algo uses values up to the day before (one-day lag).
+Treasury yield curve data arrives through a normal subscription, so it has no look-ahead either.
+
+**What changes and what doesn't.** P&L is not charged margin interest in either version (LEAN's default),
+so the only thing that changes trades is carry: a funding rate about 0.6 pp lower makes carry more positive,
+mostly in 2008-2021, which tilts bond and equity ETFs toward long. QC's Sharpe changes for two reasons: those
+trades, and a lower rate subtracted. `compare_stages.py` does not subtract any rate, so its Sharpe moves only
+with the trades. Because this equity curve already earns no interest on cash, it is close to an excess return,
+which is how Carver measures Sharpe; QC's figure subtracts a rate on top, so the `compare_stages.py` Sharpe is
+the better like-for-like number.
+
+**Charts and checks.** Chart `Risk-free rate (%)` now has three lines: `LEAN risk-free` (primary credit, for
+reference), `Risk-free used` (DTB3 in this variant) and `Carry funding (rf + spread)`. DTB3 changes daily, so
+with it the chart is weekly and the `RF` log line is quarterly. To confirm the run used DTB3:
+`python research/check_risk_free.py backtest.json --fred DTB3.csv --series "Risk-free used"` should show a
+gap near zero in every year.
 
 ## Risk-free rate: source, units, how to check it
 
@@ -137,12 +189,12 @@ current vote right after warm-up. Keep the setting the same in both stages for t
 
 1. Create a new Python project, e.g. `CarverStage3`.
 2. Replace `main.py` with `stage3_multi_rule/main.py`.
-3. Add three files at the project root with the contents of `carver_lib/starter_core.py`,
-   `carver_lib/rules.py` and `carver_lib/combine.py` (same names).
-4. Backtest. Charts: *Combined vote*, *Carry (annual)*, *Funding rate*. Each opening order tag lists
+3. Add four files at the project root with the contents of `carver_lib/starter_core.py`,
+   `carver_lib/rules.py`, `carver_lib/combine.py` and `carver_lib/rates.py` (same names).
+4. Backtest. Charts: *Combined vote*, *Carry (annual)*, *Risk-free rate (%)*. Each opening order tag lists
    the combined vote and every rule's vote.
 
-With the LEAN CLI: copy `main.py` and the three `carver_lib` files into the project folder, then
+With the LEAN CLI: copy `main.py` and the four `carver_lib` files into the project folder, then
 `lean cloud push --project CarverStage3 && lean cloud backtest CarverStage3 --open`.
 
 ## Parameters
@@ -157,6 +209,9 @@ Same as Stage 2 (`symbols`, `target_risk`, `idm`, `stop_fraction`, `allow_short`
 | `w_mac`, `w_breakout`, `w_carry` | 0.3, 0.3, 0.4 | Family weights, split evenly inside each family |
 | `funding_spread` | 0.0 | Added to the risk-free rate in carry |
 | `funding_rate` | 0.02 | Fallback funding rate if LEAN's risk-free model is unavailable |
+| `rf_source` | lean | `lean` (primary credit, baseline), `dtb3` (3-month T-bill from FRED) or `treasury` (QC US Treasury 3-month) |
+| `dtb3_key` | DTB3.csv | Object Store key holding the FRED DTB3 CSV |
+| `dtb3_url` | FRED DTB3 CSV link | Where to download DTB3 if the Object Store key is missing |
 | `warmup_days` | 550 | Calendar days of warm-up |
 
 ## Suggested runs for the comparison
@@ -166,5 +221,7 @@ Same as Stage 2 (`symbols`, `target_risk`, `idm`, `stop_fraction`, `allow_short`
 3. Stage 3, defaults.
 4. Stage 3, `rules=mac8,mac16,mac32,mac64,breakout40,breakout80,breakout160,breakout320` (trend only, isolates carry).
 5. Stage 3, `ma_type=ewma`.
+6. Stage 3, `rf_source=dtb3` (T-bill risk-free, carry funding = DTB3). Compare with run 3.
+7. Stage 3, `rf_source=dtb3`, `funding_spread=0.01` (T-bill + 1% margin cost in carry). Compare with run 6.
 
 Then compare with `research/compare_stages.py` (see the root README).
