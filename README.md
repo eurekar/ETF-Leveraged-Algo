@@ -9,7 +9,7 @@ like-for-like.
 | 1 | `Stage_1.py` | Starter System on one ETF (XLE). Reference only. |
 | 2 | `stage2_starter/` | Ten ETFs (SPY, EFA, EEM, VNQ, IEF, TLT, GLD, DBC, FXE, FXY), 16/64 crossover, trailing stop, IDM 2.0 |
 | 3 | `stage3_multi_rule/` | Direction from a vote of 4 crossovers, 4 breakouts and carry (ch. 8). Stops and sizing as Stage 2 |
-| 4 | planned | Continuous trading: daily resizing with a buffer, no stops |
+| 4 | `stage4_continuous/` | Continuous trading: Stage 3 direction, re-sized daily with a 10% buffer, no stops |
 | 5 | planned | Non-binary forecasts: scaled, capped, FDM |
 
 ## Layout
@@ -19,8 +19,10 @@ carver_lib/          shared logic, no LEAN imports, tested offline
   starter_core.py    Stage 2: instrument risk, sizing, trailing stop, re-entry rule
   rules.py           Stage 3: crossover, breakout, carry
   combine.py         Stage 3: rule weights, combined vote, MultiRuleSystem
+  buffer.py          Stage 4: average position, buffer, ContinuousSystem
 stage2_starter/      main.py (QC algorithm) + README
 stage3_multi_rule/   main.py (QC algorithm) + README
+stage4_continuous/   main.py (QC algorithm) + README
 tests/               python -m pytest tests   (needs numpy, pandas, pytest)
 research/
   compare_stages.py  scorecard across backtests
@@ -40,5 +42,5 @@ python research/compare_stages.py stage2=stage2.json stage3=stage3.json --split 
 ```
 
 It prints annual return, realised vol, Sharpe, max and longest drawdown, monthly skew, orders, opens,
-stops, turnover and fees, for the full sample and both halves. Count a change as an improvement only
+stops, buffer adjusts, turnover and fees, for the full sample and both halves. Count a change as an improvement only
 if it holds in both halves; a Sharpe gain under about 0.1 over 18 years is within noise.
