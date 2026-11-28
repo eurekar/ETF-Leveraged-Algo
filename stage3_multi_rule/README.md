@@ -17,10 +17,49 @@ Each ready rule votes +1/−1. Combined vote = Σ wᵢ·voteᵢ / Σ wᵢ (over 
 Trade direction = sign of the combined vote. A rule that is still warming up sits out and the
 weights of the others are renormalised (this only happens for carry in an ETF's first year).
 
-**Why 30/30/40 and not 50/50 trend/carry:** with binary votes, a 50% carry weight gives an exact
-tie every time all eight trend rules point against carry, and the system would sit flat. With
-30/30/40 a tie is impossible once all rules are ready (`tests/test_stage3.py` checks all 512 cases).
-Change it with `w_mac`, `w_breakout`, `w_carry`.
+**Why 30/30/40:** with 30/30/40 a tie is impossible once all rules are ready (`tests/test_stage3.py`
+checks all 512 vote patterns), and trend can still outvote carry on a 7-1 or 8-0 split. Carver's
+handcrafted 25/25/50 (equal weight trend vs carry) was tried as the default and reverted: in this
+stage it freezes the system (see below). It stays available with `w_mac=0.25`, `w_breakout=0.25`,
+`w_carry=0.5`.
+
+**Ties:** any tie gives signal 0. A flat ETF waits until a rule changes, and an open trade is left to
+its stop. That is the binary version of a zero forecast. 25/25/50 ties only when all eight trend
+rules oppose carry; trend-only runs (8 equal rules) tie on any 4-4 split.
+
+**Results so far (QuantConnect, 2008 to Dec 2025):**
+
+| Run | Sharpe |
+|---|---|
+| Stage 2 baseline | 0.60 |
+| Stage 3, `rules=mac16` | matches Stage 2 exactly (regression check passed) |
+| Stage 3, 30/30/40 (default) | 0.54 |
+| Stage 3, trend only | 0.44 |
+| Stage 3, 25% carry | 0.34 |
+| Stage 3, 25/25/50 (tried, reverted) | 0.25 (46 opens) |
+
+All are within about one standard error of each other (roughly 0.24 over 18 years), so the
+weights are not tuned on these numbers.
+
+**25/25/50 run: Sharpe 0.25, only 46 opens in 18 years, 2.7% vol. Cause confirmed: carry
+decides the direction and the re-entry rule then locks the ETF out.**
+
+1. With carry at 50%, the eight trend rules together weigh 50%. They can at most tie carry
+   (all eight against it), never outvote it. So the trade direction is simply the sign of carry.
+2. After a stop-out, the re-entry rule waits for the direction to flip. That now means waiting
+   for carry to change sign, which for an ETF happens only when the short rate crosses its yield
+   (a few times in 18 years at most). Until then the ETF sits flat, often for years.
+3. `wait_for_flip` does the same at the start: no first trade until carry flips.
+
+Offline check (`python research/reentry_lockout_sim.py`, 20 synthetic 18-year paths with carry
+always positive): median trades per path are Stage 2 42, trend only 30, 30/30/40 26, 25/25/50 0.
+At 30/30/40 trend can still override carry, but only on a 7-1 or 8-0 split, which is why that
+run also traded less than Stage 2.
+
+Conclusion: with binary votes, stops and a flip-to-re-enter rule, any slow rule with half the
+weight or more freezes the system. This is a property of combining Stage 3's mechanics, not
+evidence against carry. Stage 4 drops stops and the re-entry rule, so carry's weight works there
+as intended.
 
 **Forecast scaling and FDM:** not used at this stage on purpose. Multiplying a forecast by a positive
 scalar or by the FDM never changes its sign, so with binary positions they have no effect.

@@ -19,10 +19,12 @@ Weights are set per rule family and split evenly inside the family:
     breakout 30%  (4 speeds -> 7.5% each)
     carry 40%
 
-With these weights a tie (vote exactly 0) cannot happen when all rules are
-ready: the trend votes add up to an even multiple of 7.5%, which is never
-+/-40%. With carry at 50% a tie would happen every time all eight trend rules
-disagree with carry, and the system would sit flat.
+With these weights a tie cannot happen once all rules are ready. Carver's
+handcrafted 25/25/50 (w_carry=0.5) is available as a parameter, but in this
+binary, stop-based stage it freezes the system: trend can never outvote
+carry, so direction = sign(carry), and after a stop the re-entry rule waits
+for carry to change sign (see stage3_multi_rule/README.md). Any tie gives
+signal 0: a flat ETF waits until a rule changes.
 
 Forecast scalars and the forecast diversification multiplier do not appear
 here on purpose: multiplying by a positive number never changes a sign, so
